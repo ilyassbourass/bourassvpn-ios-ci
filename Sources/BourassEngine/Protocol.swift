@@ -93,7 +93,9 @@ public enum FastDnsProtocol {
             parts.append(String(b32[idx..<end]))
             idx = end
         }
-        return parts.enumerated().map { i, p in "\(i)-\(p)" }
+        // t7.pcap shows Faiz's own client: "0-<part>" first label, then BARE
+        // continuation labels. Our server accepts both; his may only accept this.
+        return parts.enumerated().map { i, p in i == 0 ? "0-\(p)" : p }
     }
 
     // MARK: uplink chunked queries
