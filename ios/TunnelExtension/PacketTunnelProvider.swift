@@ -24,8 +24,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         try? Data().write(to: logURL)  // truncate per session
         engineLog = { msg in
             NSLog("[BourassEngine] %@", msg)
-            let line = "\(Date()) \(msg)
-"
+            let line = "\(Date()) \(msg)\n"
             if let data = line.data(using: .utf8) {
                 if let fh = try? FileHandle(forWritingTo: logURL) {
                     fh.seekToEndOfFile(); fh.write(data); try? fh.close()
