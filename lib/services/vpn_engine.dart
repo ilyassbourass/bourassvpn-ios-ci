@@ -176,8 +176,11 @@ class VpnEngine extends ChangeNotifier {
     try {
       _nativeStats = _statsCh.receiveBroadcastStream().listen((e) {
         if (e is Map) {
-          _upKbps = (e['up'] as num?)?.toDouble() ?? _upKbps;
-          _downKbps = (e['down'] as num?)?.toDouble() ?? _downKbps;
+          // Clamp absurd first-tick deltas (interface counters jump on start)
+          final up = (e['up'] as num?)?.toDouble() ?? _upKbps;
+          final down = (e['down'] as num?)?.toDouble() ?? _downKbps;
+          _upKbps = up > 100000 ? 0 : up;
+          _downKbps = down > 100000 ? 0 : down;
           _pingMs = (e['ping'] as num?)?.toInt() ?? _pingMs;
           _bytesUp = (e['upBytes'] as num?)?.toInt() ?? _bytesUp;
           _bytesDown = (e['downBytes'] as num?)?.toInt() ?? _bytesDown;

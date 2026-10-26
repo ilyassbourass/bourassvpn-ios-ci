@@ -71,7 +71,7 @@ public struct EngineConfig {
     /// 105.73.34.105/106 are unreachable black holes).
     public var directOnly = false
     /// Uplink wire format (see FastDnsProtocol.UplinkFormat).
-    public var uplinkFormat: FastDnsProtocol.UplinkFormat = .perChunk
+    public var uplinkFormat: FastDnsProtocol.UplinkFormat = .singleEnvelope  // Freebuff-proven vs Faiz
 
     public init(zone: String, resolver: String = "", serverIp: String = "",
                 sessionToken: String = defaultSessionToken, directOnly: Bool = false,
