@@ -1,0 +1,49 @@
+name: Build IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.x"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.8"
+      - name: Inject identity constants from secrets (public source has placeholders)
+        env:
+          FAIZ_MASTER: ${{ secrets.FAIZ_MASTER }}
+          FAIZ_CERT: ${{ secrets.FAIZ_CERT }}
+          FAIZ_TOKEN: ${{ secrets.FAIZ_TOKEN }}
+          FAIZ_SUB: ${{ secrets.FAIZ_SUB }}
+        run: |
+          set -e
+          R=Sources/BourassEngine/EngineConfig.swift
+          python3 - "$R" <<'PY'
+          import os, sys
+          p = sys.argv[1]
+          t = open(p, encoding='utf-8').read()
+          t = t.replace('@@FAIZ_MASTER@@', os.environ['FAIZ_MASTER'])
+          t = t.replace('@@FAIZ_CERT@@', os.environ['FAIZ_CERT'])
+          t = t.replace('@@FAIZ_TOKEN@@', os.environ['FAIZ_TOKEN'])
+          t = t.replace('@@FAIZ_SUB@@', os.environ['FAIZ_SUB'])
+          open(p, 'w', encoding='utf-8').write(t)
+          print('constants injected:', t.count('@@FAIZ') == 0)
+          PY
+      - name: Build unsigned IPA
+        run: |
+          flutter pub get
+          flutter build ios --no-codesign --release
+          APP=build/ios/iphoneos/Runner.app
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          cd out && zip -qry BourassVPN-unsigned.ipa Payload && ls -la BourassVPN-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BourassVPN-unsigned-ipa
+          path: out/BourassVPN-unsigned.ipa

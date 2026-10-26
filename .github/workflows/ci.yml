@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      s3_live:
+        description: "Run S3 live test against Faiz Tunnel 1 (uses the panel token)"
+        type: boolean
+        default: false
+
+jobs:
+  # S1 gate: build + golden-vector unit tests (deterministic, no network)
+  engine:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.x"
+      - name: Build (engine + CLI)
+        run: swift build
+      - name: S1 unit tests
+        run: swift test
+
+  # S2: full engine live against our Oracle (handshake + real ICMP round trip).
+  # Non-blocking: runner egress to TCP:53 varies; failures are signals, not gates.
+  s2-live:
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.x"
+      - name: Build CLI
+        run: swift build -c release
+      - name: S2 transfer (Oracle u.063990.xyz)
+        run: .build/release/BourassCLI transfer --zone u.063990.xyz --seconds 15 --rate 30 --direct
+
+  # S3: Faiz Tunnel 1 with the panel token — manual dispatch only.
+  s3-live:
+    if: github.event_name == 'workflow_dispatch' && inputs.s3_live == true
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.x"
+      - name: Build CLI
+        run: swift build -c release
+      - name: S3 handshake gate (Faiz dns.marocdns.uk, direct)
+        run: .build/release/BourassCLI handshake --zone dns.marocdns.uk --direct
+      # NOTE: Faiz's data plane is only served through carrier resolvers on
+      # Inwi 0-balance cellular — a datacenter IP can never exercise it.
+      # End-to-end data proof for Faiz happens on-device (S5/S6, Inwi SIM).
+
+  # Unsigned IPA: full Flutter app + TunnelExtension appex + engine package.
+  # Entitlements embedded via ldid so signing tools (Sideloadly/ESign/Feather)
+  # can honor packet-tunnel-provider at install time.
+  ipa:
+    runs-on: macos-15
+    needs: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.x"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.8"
+      - name: Flutter pub get
+        run: flutter pub get
+      - name: Build unsigned iOS app (raw xcodebuild for full diagnostics)
+        run: |
+          flutter build ios --config-only --no-codesign --release
+          echo "=== PROBE: standalone NetworkExtension import on this Xcode/SDK ==="
+          xcrun -sdk iphoneos swiftc -target arm64-apple-ios15.0 -typecheck -e 'import NetworkExtension
+          class X: NEPacketTunnelProvider {
+            override func startTunnel(options: [String: NSObject]? = nil) async throws {}
+            override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {}
+          }
+          func f(_ p: NEPacketTunnelFlow) {}' && echo "PROBE OK" || echo "PROBE FAILED"
+          echo "=== SDK ground truth: NetworkExtension framework layout ==="
+          NEFW=$(xcrun -sdk iphoneos --show-sdk-path)/System/Library/Frameworks/NetworkExtension.framework
+          ls "$NEFW" || true
+          ls "$NEFW/Modules" 2>/dev/null || echo "NO Modules dir"
+          head -40 "$NEFW/Modules/module.modulemap" 2>/dev/null || echo "NO modulemap"
+          echo "--- umbrella header includes:"
+          grep -E "#import|#include" "$NEFW/Headers/NetworkExtension.h" 2>/dev/null | head -40 || echo "NO umbrella"
+          echo "--- NEPacketTunnelFlow.h first 30 lines:"
+          head -30 "$NEFW/Headers/NEPacketTunnelFlow.h" 2>/dev/null || echo "NO NEPacketTunnelFlow.h"
+          echo "=== TunnelExtension build settings ==="
+          xcodebuild -project ios/Runner.xcodeproj -target TunnelExtension -sdk iphoneos -configuration Release -showBuildSettings 2>&1 | grep -E " SDKROOT | PLATFORM_NAME | SWIFT_VERSION | IPHONEOS_DEPLOYMENT_TARGET| FRAMEWORK_SEARCH_PATHS| MODULE_CACHE| PRODUCT_MODULE_NAME| TARGETED_DEVICE_FAMILY" | head -20
+          set -o pipefail
+          xcodebuild -project ios/Runner.xcodeproj \
+            -scheme Runner \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            -derivedDataPath build/derived \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build/xcodebuild.log | grep -E "error:|warning: .*Tunnel|BUILD" | tail -50 || {
+              echo "=== full error context ==="
+              grep -B2 -A6 "error:" build/xcodebuild.log | head -120
+              exit 1
+            }
+          cp -R build/derived/Build/Products/Release-iphoneos/Runner.app build/Runner.app
+      - name: Embed entitlements (ldid) + package IPA
+        run: |
+          brew install ldid
+          APP=build/Runner.app
+          ls -la "$APP/PlugIns" || true
+          ldid -Sios/Runner/Runner.entitlements "$APP/Runner"
+          ldid -Sios/TunnelExtension/TunnelExtension.entitlements "$APP/PlugIns/TunnelExtension.appex/TunnelExtension"
+          mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
+          cd build && zip -qry BourassVPN-unsigned.ipa Payload
+          ls -la BourassVPN-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BourassVPN-unsigned-ipa
+          path: build/BourassVPN-unsigned.ipa
+
+      - name: Sign with the shared dev certificate (profile-bound App ID)
+        env:
+          CERT_P12: ${{ secrets.CERT_P12 }}
+          CERT_PASS: ${{ secrets.CERT_PASS }}
+          CERT_PROFILE: ${{ secrets.CERT_PROFILE }}
+        run: |
+          set -e
+          cd build
+          echo "$CERT_P12" | base64 -d > cert.p12
+          echo "$CERT_PROFILE" | base64 -d > cert.mobileprovision
+          security create-keychain -p tmpbuild sign.keychain
+          security import cert.p12 -k sign.keychain -P "$CERT_PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$CERT_PASS" sign.keychain >/dev/null 2>&1 || true
+          security unlock-keychain -p tmpbuild sign.keychain
+
+          rm -rf Payload && unzip -q BourassVPN-unsigned.ipa
+          APP=Payload/Runner.app
+          APEX="$APP/PlugIns/TunnelExtension.appex"
+          BID=app.cassava5777.otter9852
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BID" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BID.tunnel" "$APEX/Info.plist"
+
+          security cms -D -i cert.mobileprovision > prof.plist
+          /usr/libexec/PlistBuddy -c "Print :Entitlements" prof.plist -x > ents.plist
+          /usr/libexec/PlistBuddy -c "Delete :application-identifier" ents.plist || true
+
+          cp cert.mobileprovision "$APP/embedded.mobileprovision"
+          cp cert.mobileprovision "$APEX/embedded.mobileprovision"
+
+          IDENTITY=$(security find-identity -v -p codesigning sign.keychain | head -2 | tail -1 | sed -E 's/.*"(.*)"/\1/')
+          echo "identity: $IDENTITY"
+          codesign --force --sign "$IDENTITY" --entitlements ents.plist --timestamp=none "$APEX/TunnelExtension"
+          codesign --force --sign "$IDENTITY" --entitlements ents.plist --timestamp=none "$APP"
+          codesign --verify --deep "$APP" && echo "signature verified"
+          rm -rf cert.p12 cert.mobileprovision prof.plist
+          zip -qry BourassVPN-signed.ipa Payload
+          ls -la BourassVPN-signed.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BourassVPN-signed-ipa
+          path: build/BourassVPN-signed.ipa
