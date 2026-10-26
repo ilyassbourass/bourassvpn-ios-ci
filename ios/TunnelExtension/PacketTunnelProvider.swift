@@ -19,7 +19,21 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let token = cfg?["token"] as? String ?? EngineConfig.defaultSessionToken
 
         let logger = Logger(subsystem: "com.fastvpn.inwi.tunnel", category: "engine")
-        engineLog = { msg in NSLog("[BourassEngine] %@", msg) }  // NSLog shows in syslog live
+        let logURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("engine.log")
+        try? Data().write(to: logURL)  // truncate per session
+        engineLog = { msg in
+            NSLog("[BourassEngine] %@", msg)
+            let line = "\(Date()) \(msg)
+"
+            if let data = line.data(using: .utf8) {
+                if let fh = try? FileHandle(forWritingTo: logURL) {
+                    fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+                } else {
+                    try? data.write(to: logURL)
+                }
+            }
+        }
 
         var config = EngineConfig(zone: zone, resolver: resolver,
                                   serverIp: serverIp, sessionToken: token)
