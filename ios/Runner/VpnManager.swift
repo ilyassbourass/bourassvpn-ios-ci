@@ -65,8 +65,16 @@ final class VpnManager {
                  completion: @escaping (String) -> Void) {
         statusDetail = "Saving VPN configuration …"
         NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, _ in
-            // reuse OUR profile only; create if missing
-            let manager = managers?.first(where: Self.ours) ?? NETunnelProviderManager()
+                    // FAST PATH: a live session already exists (auto-connect / VPN up) —
+                    // re-saving here hangs the Dart promise (seen on iOS 26).
+                    if let live = managers?.first(where: Self.ours),
+                       live.connection.status == .connected || live.connection.status == .connecting {
+                        self?.status = live.connection.status
+                        completion("ok")
+                        return
+                    }
+                    // reuse OUR profile only; create if missing
+                    let manager = managers?.first(where: Self.ours) ?? NETunnelProviderManager()
             let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol)
                 ?? NETunnelProviderProtocol()
             proto.providerBundleIdentifier = (Bundle.main.bundleIdentifier ?? "com.fastvpn.inwi") + ".tunnel"
@@ -82,7 +90,15 @@ final class VpnManager {
             manager.localizedDescription = "BourassVPN"
             manager.isEnabled = true
 
+            // Watchdog: if saveToPreferences never calls back (iOS 26 quirk),
+            // answer anyway so the Dart side moves to verification.
+            var answered = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                if !answered { answered = true; completion("ok") }
+            }
             manager.saveToPreferences { [weak self] error in
+                if answered { return }
+                answered = true
                 guard let self = self else { return }
                 if let error = error {
                     self.statusDetail = "VPN permission denied (\(error.localizedDescription))"
