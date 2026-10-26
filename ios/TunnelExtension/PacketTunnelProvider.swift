@@ -19,7 +19,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let token = cfg?["token"] as? String ?? EngineConfig.defaultSessionToken
 
         let logger = Logger(subsystem: "com.fastvpn.inwi.tunnel", category: "engine")
-        engineLog = { msg in logger.error("\(msg, privacy: .public)") }  // error level = always streamed
+        engineLog = { msg in NSLog("[BourassEngine] %@", msg) }  // NSLog shows in syslog live
 
         var config = EngineConfig(zone: zone, resolver: resolver,
                                   serverIp: serverIp, sessionToken: token)

@@ -681,8 +681,9 @@ public final class FastDnsEngine {
                 let inflight = lane.pending.count
                 lane.lock.unlock()
 
-                // backpressure: skip the round, never sleep-block the writer
-                if inflight >= Self.maxInflightPerLane { continue }
+                // backpressure: skip the round — but SLEEP, or this spins at
+                // 100% CPU (kernel logged 1414 wakes/s and iOS throttles us)
+                if inflight >= Self.maxInflightPerLane { sleepMs(20); continue }
 
                 let sock: TcpSocket
                 do {
