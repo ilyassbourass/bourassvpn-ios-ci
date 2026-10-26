@@ -99,18 +99,26 @@ class VpnEngine extends ChangeNotifier {
   /// When present, the app connects by itself — no taps needed for CI-style
   /// verification runs. Disabled by default so normal users see the dashboard.
   Future<void> _maybeAutoConnect() async {
-    try {
-      final cfg = await _ch.invokeMethod<Map>('launchConfig');
-      final zone = (cfg?['zone'] as String?)?.trim() ?? '';
-      final auto = cfg?['autoconnect'] == true && zone.isNotEmpty;
-      if (!auto) return;
-      final match = VpnServer.defaults.where((s) => s.zone == zone);
-      if (match.isNotEmpty) {
-        _server = match.first;
+    // The platform channels register slightly after Dart boots, so retry
+    // briefly instead of losing the one query.
+    for (var attempt = 0; attempt < 8; attempt++) {
+      try {
+        final cfg = await _ch.invokeMethod<Map>('launchConfig');
+        final zone = (cfg?['zone'] as String?)?.trim() ?? '';
+        if (cfg?['autoconnect'] != true || zone.isEmpty) return;
+        final match = VpnServer.defaults.where((s) => s.zone == zone);
+        if (match.isNotEmpty) {
+          _server = match.first;
+          notifyListeners();
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await _probeNative();
+        if (_nativeAvailable) await connect();
+        return;
+      } catch (_) {
+        await Future<void>.delayed(const Duration(milliseconds: 600));
       }
-      await _probeNative();
-      await connect();
-    } catch (_) {}
+    }
   }
 
   Future<void> _loadDeviceId() async {
