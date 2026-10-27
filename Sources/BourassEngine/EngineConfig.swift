@@ -5,10 +5,10 @@ import Foundation
 public struct EngineConfig {
 
     // Identity / credentials (Faiz lease, bound to subId; token expiry 2026-11-03)
-    public static let masterKeyHex = "@@FAIZ_MASTER@@"
-    public static let certHex = "@@FAIZ_CERT@@"
-    public static let defaultSessionToken = "@@FAIZ_TOKEN@@"
-    public static let subId = "@@FAIZ_SUB@@"
+    public static let masterKeyHex = "3529de18502ac35a534ce8b541d834228ca3c1cd89b6ce3d31cf44072f0e477a"
+    public static let certHex = "c39a8841ecb915f1ba6462f486ee009219b052db290f5209f53d34c31c56ab41"
+    public static let defaultSessionToken = "6ae92400e940e8720c737c0b2299ffc3b163625c"
+    public static let subId = "b3a88f01e8a54043"
 
     // Wire parameters (chunkPayload tunable by remote config)
     public static var tunableChunkPayload = 81
@@ -19,17 +19,9 @@ public struct EngineConfig {
     /// Faiz "New CFG" 2026-10-25: dns8 -> fbcdn1 Linode, dns3 -> new DE box,
     /// dns7/dns10 are new; dns5 (BG) and dns6 (ZA) dropped from the roster.
     public static let serverMap: [String: String] = [
-        // Ours
+        // Ours - Oracle Cloud Amsterdam
         "u.063990.xyz": "158.101.208.5",
         "b.jobixapp.com": "158.101.208.5",
-        // Faiz (New CFG, live 2026-10-25)
-        "dns.marocdns.uk": "37.221.198.37",
-        "dns2.marocdns.uk": "51.170.136.78",
-        "dns4.marocdns.uk": "51.178.52.81",
-        "dns8.marocdns.uk": "172.104.140.27",
-        "dns10.marocdns.uk": "172.239.246.40",
-        "dns3.marocdns.uk": "159.223.27.153",
-        "dns7.marocdns.uk": "174.138.6.22",
     ]
 
     public static let primaryResolver = "105.73.34.105"
@@ -52,13 +44,7 @@ public struct EngineConfig {
 
     public static let roster: [Tunnel] = [
         Tunnel(id: "oracle", name: "Bourass • Oracle Amsterdam (Max Fast)", zone: "u.063990.xyz", publicIp: "158.101.208.5", country: "NL", vip: false),
-        Tunnel(id: "t1", name: "Tunnel 1 • FastDNS (Germany)", zone: "dns.marocdns.uk", publicIp: "37.221.198.37", country: "DE", vip: false),
-        Tunnel(id: "t2", name: "Tunnel 2 • FastDNS (Morocco)", zone: "dns2.marocdns.uk", publicIp: "51.170.136.78", country: "MA", vip: true),
-        Tunnel(id: "t3", name: "Tunnel 3 • FastDNS (France)", zone: "dns4.marocdns.uk", publicIp: "51.178.52.81", country: "FR", vip: true),
-        Tunnel(id: "t6", name: "Tunnel 6 • FastDNS (fbcdn1 DE)", zone: "dns8.marocdns.uk", publicIp: "172.104.140.27", country: "DE", vip: false),
-        Tunnel(id: "t7", name: "Tunnel 7 • FastDNS (dns10 NL)", zone: "dns10.marocdns.uk", publicIp: "172.239.246.40", country: "NL", vip: false),
-        Tunnel(id: "t8", name: "Tunnel 8 • FastDNS (dns3 DE)", zone: "dns3.marocdns.uk", publicIp: "159.223.27.153", country: "DE", vip: false),
-        Tunnel(id: "t9", name: "Tunnel 9 • FastDNS (dns7 NL)", zone: "dns7.marocdns.uk", publicIp: "174.138.6.22", country: "NL", vip: false),
+        Tunnel(id: "jobix", name: "Bourass • Jobix (A/B test)", zone: "b.jobixapp.com", publicIp: "158.101.208.5", country: "NL", vip: false),
     ]
 
     /// Runtime-overridable values (in-app token editor parity with the
@@ -71,7 +57,7 @@ public struct EngineConfig {
     /// 105.73.34.105/106 are unreachable black holes).
     public var directOnly = false
     /// Uplink wire format (see FastDnsProtocol.UplinkFormat).
-    public var uplinkFormat: FastDnsProtocol.UplinkFormat = .singleEnvelope  // Freebuff-proven vs Faiz
+    public var uplinkFormat: FastDnsProtocol.UplinkFormat = .perChunk
 
     public init(zone: String, resolver: String = "", serverIp: String = "",
                 sessionToken: String = defaultSessionToken, directOnly: Bool = false,
